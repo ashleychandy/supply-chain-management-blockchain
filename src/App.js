@@ -243,7 +243,7 @@ const EditProductForm = ({ product, onSubmit, onCancel }) => {
       id: product.id,
       name,
       description,
-      price: ethers.parseEther(price),
+      price,
     });
   };
 
@@ -308,15 +308,18 @@ const generateUniqueId = (prefix) =>
 
 const App = () => {
   const { contract, account, roles } = useContract();
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   const hasRole = useCallback(() => {
+    if (isDemoMode) return true;
     if (!account) return false;
     return Object.values(roles).some(
       (role) => role && role.toLowerCase() === account.toLowerCase()
     );
-  }, [account, roles]);
+  }, [account, roles, isDemoMode]);
 
   const getUserRole = useCallback(() => {
+    if (isDemoMode) return "Demo User";
     if (!account) return null;
     for (const [role, address] of Object.entries(roles)) {
       if (address && address.toLowerCase() === account.toLowerCase()) {
@@ -324,12 +327,12 @@ const App = () => {
       }
     }
     return null;
-  }, [account, roles]);
+  }, [account, roles, isDemoMode]);
 
   return (
     <Provider store={store}>
       <Router>
-        <div className="min-h-screen bg-gray-900 text-gray-100">
+        <div className="min-h-screen bg-gray-900 text-gray-100 relative">
           <Navbar
             account={account}
             hasRole={hasRole}
@@ -349,6 +352,7 @@ const App = () => {
                     contract={contract}
                     requiredAddress={roles.owner}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
@@ -360,6 +364,7 @@ const App = () => {
                     contract={contract}
                     requiredAddress={roles.manufacturer}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
@@ -371,6 +376,7 @@ const App = () => {
                     contract={contract}
                     requiredAddress={roles.distributor}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
@@ -382,6 +388,7 @@ const App = () => {
                     contract={contract}
                     requiredAddress={roles.retailer}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
@@ -393,6 +400,7 @@ const App = () => {
                     contract={contract}
                     requiredAddress={Object.values(roles)}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
@@ -404,11 +412,13 @@ const App = () => {
                     contract={contract}
                     requiredAddress={Object.values(roles)}
                     account={account}
+                    isDemoMode={isDemoMode}
                   />
                 }
               />
             </Routes>
           </main>
+          <DemoModeToggle isDemoMode={isDemoMode} setIsDemoMode={setIsDemoMode} />
         </div>
         <ToastContainer position="bottom-right" autoClose={5000} theme="dark" />
       </Router>
@@ -622,19 +632,20 @@ const ProtectedRoute = ({
   component: Component,
   requiredAddress,
   account,
+  isDemoMode,
   ...rest
 }) => {
-  if (!account) {
+  if (!account && !isDemoMode) {
     return <Navigate to="/" replace />;
   }
 
-  const hasAccess = Array.isArray(requiredAddress)
+  const hasAccess = isDemoMode || (Array.isArray(requiredAddress)
     ? requiredAddress.some(
         (address) => address && account.toLowerCase() === address.toLowerCase()
       )
-    : account.toLowerCase() === requiredAddress?.toLowerCase();
+    : account.toLowerCase() === requiredAddress?.toLowerCase());
 
-  if (!hasAccess) {
+  if (!hasAccess && !isDemoMode) {
     toast.error("You don't have permission to access this page.");
     return <Navigate to="/" replace />;
   }
@@ -713,15 +724,15 @@ const Owner = ({ contract }) => {
     }
   };
 
-  const handleUpdateProduct = async (productId, name, description, price) => {
+  const handleUpdateProduct = async (updatedProduct) => {
     if (!contract) return;
     try {
       setIsLoading(true);
       const tx = await contract.updateProductDetails(
-        productId,
-        name,
-        description,
-        ethers.parseEther(price.toString())
+        updatedProduct.id,
+        updatedProduct.name,
+        updatedProduct.description,
+        ethers.parseEther(updatedProduct.price.toString())
       );
       await tx.wait();
       toast.success("Product updated successfully");
@@ -845,9 +856,8 @@ const Owner = ({ contract }) => {
               {editingProduct === product.id.toString() ? (
                 <EditProductForm
                   product={product}
-                  onUpdate={handleUpdateProduct}
+                  onSubmit={handleUpdateProduct}
                   onCancel={() => setEditingProduct(null)}
-                  isLoading={isLoading}
                 />
               ) : (
                 <div>
@@ -978,7 +988,11 @@ const Manufacturer = ({ contract }) => {
       onError: (error) => {
         const toastId = generateUniqueId("product-create-error");
         console.error("Error creating product:", error);
-        toast.error(`Error creating product: ${error.message}`, { toastId });
+        let errorMessage = "Error creating product. Please try again.";
+        if (error.message.includes("caller is not the manufacturer")) {
+          errorMessage = "You don't have permission to create products.";
+        }
+        toast.error(errorMessage, { toastId });
       },
     }
   );
@@ -998,7 +1012,11 @@ const Manufacturer = ({ contract }) => {
       onError: (error) => {
         const toastId = generateUniqueId("product-send-error");
         console.error("Error sending product:", error);
-        toast.error(`Error sending product: ${error.message}`, { toastId });
+        let errorMessage = "Error sending product. Please try again.";
+        if (error.message.includes("caller is not the manufacturer")) {
+          errorMessage = "You don't have permission to send products.";
+        }
+        toast.error(errorMessage, { toastId });
       },
     }
   );
@@ -1173,7 +1191,11 @@ const Distributor = ({ contract }) => {
       onError: (error) => {
         const toastId = generateUniqueId("product-receive-error");
         console.error("Error receiving product:", error);
-        toast.error(`Error receiving product: ${error.message}`, { toastId });
+        let errorMessage = "Error receiving product. Please try again.";
+        if (error.message.includes("caller is not the distributor")) {
+          errorMessage = "You don't have permission to receive products.";
+        }
+        toast.error(errorMessage, { toastId });
       },
     }
   );
@@ -1193,7 +1215,11 @@ const Distributor = ({ contract }) => {
       onError: (error) => {
         const toastId = generateUniqueId("product-send-error");
         console.error("Error sending product:", error);
-        toast.error(`Error sending product: ${error.message}`, { toastId });
+        let errorMessage = "Error sending product. Please try again.";
+        if (error.message.includes("caller is not the distributor")) {
+          errorMessage = "You don't have permission to send products.";
+        }
+        toast.error(errorMessage, { toastId });
       },
     }
   );
@@ -1316,7 +1342,11 @@ const Retailer = ({ contract }) => {
       onError: (error) => {
         const toastId = generateUniqueId("retailer-receive-error");
         console.error("Error receiving product:", error);
-        toast.error(`Error receiving product: ${error.message}`, { toastId });
+        let errorMessage = "Error receiving product. Please try again.";
+        if (error.message.includes("caller is not the retailer")) {
+          errorMessage = "You don't have permission to receive products.";
+        }
+        toast.error(errorMessage, { toastId });
       },
     }
   );
@@ -1827,6 +1857,26 @@ const fetchProduct = async (contract, productId) => {
           : Number(timestamp) > 0)
     ),
   };
+};
+
+const DemoModeToggle = ({ isDemoMode, setIsDemoMode }) => {
+  return (
+    <div className="fixed bottom-4 right-4 flex items-center bg-gray-800 rounded-full p-2 shadow-lg">
+      <button
+        onClick={() => setIsDemoMode(!isDemoMode)}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#7E60BF] focus:ring-offset-2 focus:ring-offset-gray-800 ${
+          isDemoMode ? 'bg-[#7E60BF]' : 'bg-gray-600'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            isDemoMode ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </button>
+      <span className="ml-2 text-sm font-medium text-white">Demo Mode</span>
+    </div>
+  );
 };
 
 export {
