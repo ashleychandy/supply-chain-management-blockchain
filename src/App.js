@@ -41,6 +41,57 @@ import { motion } from "framer-motion";
 
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
 
+const toastCooldowns = new Map();
+
+// Updated customToast function with cooldown
+const customToast = (message, type = 'info', options = {}) => {
+  const defaultOptions = {
+    position: "bottom-right",
+    autoClose: type === 'error' ? 2000 : 3000,
+    hideProgressBar: false,
+    closeOnClick: true,
+    pauseOnHover: true,
+    draggable: true,
+    onClick: (event) => {
+      // Prevent default behavior and stop propagation
+      event.preventDefault();
+      event.stopPropagation();
+    },
+  };
+
+  const mergedOptions = { ...defaultOptions, ...options };
+
+  // Generate a unique ID for this toast
+  const toastId = `${type}-${message}`;
+
+  // Check if this toast is in cooldown
+  const now = Date.now();
+  const cooldownTime = toastCooldowns.get(toastId);
+  if (cooldownTime && now < cooldownTime) {
+    return; // Still in cooldown, don't show the toast
+  }
+
+  // Set a new cooldown for this toast (3 seconds)
+  toastCooldowns.set(toastId, now + 3000);
+
+  // Show the toast
+  if (!toast.isActive(toastId)) {
+    switch (type) {
+      case 'success':
+        toast.success(message, { ...mergedOptions, toastId });
+        break;
+      case 'error':
+        toast.error(message, { ...mergedOptions, toastId });
+        break;
+      case 'warning':
+        toast.warn(message, { ...mergedOptions, toastId });
+        break;
+      default:
+        toast.info(message, { ...mergedOptions, toastId });
+    }
+  }
+};
+
 // Set up contract details
 // const CONTRACT_ADDRESS = "0x8464135c8F25Da09e49BC8782676a84730C318bC"; // Change to your deployed contract address
 
@@ -127,8 +178,9 @@ const useContract = () => {
           } catch (switchError) {
             // This error code indicates that the chain has not been added to MetaMask
             if (switchError.code === 4902) {
-              toast.error(
-                "Please add the Polygon Amoy network to your wallet manually."
+              customToast(
+                "Please add the Polygon Amoy network to your wallet manually.",
+                "error"
               );
               return;
             }
@@ -163,10 +215,10 @@ const useContract = () => {
         return contractInstance;
       } catch (error) {
         console.error("Failed to initialize Ethereum connection:", error);
-        toast.error("Failed to connect to Ethereum wallet.");
+        customToast("Failed to connect to Ethereum wallet.", "error");
       }
     } else {
-      toast.error("Ethereum wallet not found. Please install MetaMask.");
+      customToast("Ethereum wallet not found. Please install MetaMask.", "error");
     }
   }, []);
 
@@ -303,8 +355,6 @@ const EditProductForm = ({ product, onSubmit, onCancel }) => {
 };
 
 // Utility function to generate unique IDs
-const generateUniqueId = (prefix) =>
-  `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 const App = () => {
   const { contract, account, roles } = useContract();
@@ -420,7 +470,19 @@ const App = () => {
           </main>
           <DemoModeToggle isDemoMode={isDemoMode} setIsDemoMode={setIsDemoMode} />
         </div>
-        <ToastContainer position="bottom-right" autoClose={5000} theme="dark" />
+        <ToastContainer
+          position="bottom-right"
+          autoClose={3000}
+          hideProgressBar={false}
+          newestOnTop={true}
+          closeOnClick
+          rtl={false}
+          pauseOnFocusLoss
+          draggable
+          pauseOnHover
+          theme="dark"
+          limit={3}
+        />
       </Router>
     </Provider>
   );
@@ -646,7 +708,7 @@ const ProtectedRoute = ({
     : account.toLowerCase() === requiredAddress?.toLowerCase());
 
   if (!hasAccess && !isDemoMode) {
-    toast.error("You don't have permission to access this page.");
+    customToast("You don't have permission to access this page.", "error");
     return <Navigate to="/" replace />;
   }
 
@@ -677,7 +739,7 @@ const Owner = ({ contract }) => {
       setProducts(allProducts);
     } catch (error) {
       console.error("Failed to fetch products:", error);
-      toast.error("Unable to load products. Please try again later.");
+      customToast("Unable to load products. Please try again later.", "error", { toastId: 'fetch-products-error', autoClose: 2000 });
     } finally {
       setIsLoading(false);
     }
@@ -693,7 +755,7 @@ const Owner = ({ contract }) => {
       !ethers.isAddress(distributor) ||
       !ethers.isAddress(retailer)
     ) {
-      toast.error("Please enter valid Ethereum addresses for all roles");
+      customToast("Please enter valid Ethereum addresses for all roles", "error", { toastId: 'invalid-addresses-error', autoClose: 2000 });
       return false;
     }
     return true;
@@ -701,7 +763,7 @@ const Owner = ({ contract }) => {
 
   const setAddresses = async () => {
     if (!contract) {
-      toast.error("Unable to connect to blockchain. Please try again later.");
+      customToast("Unable to connect to blockchain. Please try again later.", "error");
       return;
     }
 
@@ -715,10 +777,10 @@ const Owner = ({ contract }) => {
         retailer
       );
       await tx.wait();
-      toast.success("Supply chain roles updated successfully");
+      customToast("Supply chain roles updated successfully", "success");
     } catch (error) {
       console.error("Transaction failed:", error);
-      toast.error("Unable to update supply chain roles. Please try again.");
+      customToast("Unable to update supply chain roles. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -735,12 +797,12 @@ const Owner = ({ contract }) => {
         ethers.parseEther(updatedProduct.price.toString())
       );
       await tx.wait();
-      toast.success("Product updated successfully");
+      customToast("Product updated successfully", "success");
       setEditingProduct(null);
       await fetchProducts();
     } catch (error) {
       console.error("Failed to update product:", error);
-      toast.error("Unable to update product. Please try again.");
+      customToast("Unable to update product. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -748,7 +810,7 @@ const Owner = ({ contract }) => {
 
   const handleDateRangeFilter = async () => {
     if (!dateRange.start || !dateRange.end) {
-      toast.error("Please select both start and end dates");
+      customToast("Please select both start and end dates", "error");
       return;
     }
 
@@ -771,7 +833,7 @@ const Owner = ({ contract }) => {
       setProducts(filteredProducts);
     } catch (error) {
       console.error("Failed to filter products:", error);
-      toast.error("Unable to filter products. Please try again.");
+      customToast("Unable to filter products. Please try again.", "error");
     } finally {
       setIsLoading(false);
     }
@@ -906,7 +968,7 @@ const setupEventListeners = (contract, dispatch) => {
         transactionHash: event.transactionHash,
       })
     );
-    toast.success(`New product added to supply chain`);
+    customToast(`New product added to supply chain`, "success", { toastId: 'product-created-event' });
   });
 
   handleEvent("ProductSent", (productId, from, to, timestamp, event) => {
@@ -920,7 +982,7 @@ const setupEventListeners = (contract, dispatch) => {
         transactionHash: event.transactionHash,
       })
     );
-    toast.success(`Product ${productId} sent successfully`);
+    customToast(`Product ${productId} sent successfully`, "success", { toastId: `product-sent-event-${productId}` });
   });
 
   handleEvent("ProductReceived", (productId, receiver, timestamp, event) => {
@@ -933,7 +995,7 @@ const setupEventListeners = (contract, dispatch) => {
         transactionHash: event.transactionHash,
       })
     );
-    toast.success(`Product ${productId} received successfully`);
+    customToast(`Product ${productId} received successfully`, "success", { toastId: `product-received-event-${productId}` });
   });
 };
 
@@ -980,19 +1042,17 @@ const Manufacturer = ({ contract }) => {
     },
     {
       onSuccess: () => {
-        const toastId = generateUniqueId("product-created");
-        toast.success("Product created successfully!", { toastId });
+        customToast("Product created successfully!", "success");
         setNewProduct({ name: "", description: "", price: "" });
         queryClient.invalidateQueries("products");
       },
       onError: (error) => {
-        const toastId = generateUniqueId("product-create-error");
         console.error("Error creating product:", error);
         let errorMessage = "Error creating product. Please try again.";
         if (error.message.includes("caller is not the manufacturer")) {
           errorMessage = "You don't have permission to create products.";
         }
-        toast.error(errorMessage, { toastId });
+        customToast(errorMessage, "error");
       },
     }
   );
@@ -1005,18 +1065,16 @@ const Manufacturer = ({ contract }) => {
     },
     {
       onSuccess: (_, productId) => {
-        const toastId = generateUniqueId(`product-sent-${productId}`);
-        toast.success(`Product ${productId} sent successfully!`, { toastId });
+        customToast(`Product ${productId} sent successfully!`, "success");
         queryClient.invalidateQueries("products");
       },
       onError: (error) => {
-        const toastId = generateUniqueId("product-send-error");
         console.error("Error sending product:", error);
         let errorMessage = "Error sending product. Please try again.";
         if (error.message.includes("caller is not the manufacturer")) {
           errorMessage = "You don't have permission to send products.";
         }
-        toast.error(errorMessage, { toastId });
+        customToast(errorMessage, "error");
       },
     }
   );
@@ -1025,15 +1083,15 @@ const Manufacturer = ({ contract }) => {
     (e) => {
       e.preventDefault();
       if (!newProduct.name.trim()) {
-        toast.error("Product name is required");
+        customToast("Product name is required", "error", { toastId: 'create-product-name-error', autoClose: 2000 });
         return;
       }
       if (!newProduct.description.trim()) {
-        toast.error("Product description is required");
+        customToast("Product description is required", "error", { toastId: 'create-product-description-error', autoClose: 2000 });
         return;
       }
       if (isNaN(newProduct.price) || parseFloat(newProduct.price) <= 0) {
-        toast.error("Please enter a valid price greater than 0");
+        customToast("Please enter a valid price greater than 0", "error", { toastId: 'create-product-price-error', autoClose: 2000 });
         return;
       }
       createProductMutation.mutate(newProduct);
@@ -1179,23 +1237,19 @@ const Distributor = ({ contract }) => {
     },
     {
       onSuccess: (_, productId) => {
-        const toastId = generateUniqueId(`product-received-${productId}`);
-        toast.success(`Product ${productId} received successfully!`, {
-          toastId,
-        });
+        customToast(`Product ${productId} received successfully!`, "success");
         queryClient.invalidateQueries([
           "receivableProducts",
           "receivedProducts",
         ]);
       },
       onError: (error) => {
-        const toastId = generateUniqueId("product-receive-error");
         console.error("Error receiving product:", error);
         let errorMessage = "Error receiving product. Please try again.";
         if (error.message.includes("caller is not the distributor")) {
           errorMessage = "You don't have permission to receive products.";
         }
-        toast.error(errorMessage, { toastId });
+        customToast(errorMessage, "error");
       },
     }
   );
@@ -1208,18 +1262,16 @@ const Distributor = ({ contract }) => {
     },
     {
       onSuccess: (_, productId) => {
-        const toastId = generateUniqueId(`product-sent-${productId}`);
-        toast.success(`Product ${productId} sent successfully!`, { toastId });
+        customToast(`Product ${productId} sent successfully!`, "success");
         queryClient.invalidateQueries(["receivedProducts"]);
       },
       onError: (error) => {
-        const toastId = generateUniqueId("product-send-error");
         console.error("Error sending product:", error);
         let errorMessage = "Error sending product. Please try again.";
         if (error.message.includes("caller is not the distributor")) {
           errorMessage = "You don't have permission to send products.";
         }
-        toast.error(errorMessage, { toastId });
+        customToast(errorMessage, "error");
       },
     }
   );
@@ -1329,10 +1381,7 @@ const Retailer = ({ contract }) => {
     },
     {
       onSuccess: (_, productId) => {
-        const toastId = generateUniqueId(`retailer-received-${productId}`);
-        toast.success(`Product ${productId} received successfully!`, {
-          toastId,
-        });
+        customToast(`Product ${productId} received successfully!`, "success");
         queryClient.setQueryData(["retailerProducts"], (oldData) => {
           return oldData
             ? oldData.filter((product) => product.id !== productId.toString())
@@ -1340,13 +1389,12 @@ const Retailer = ({ contract }) => {
         });
       },
       onError: (error) => {
-        const toastId = generateUniqueId("retailer-receive-error");
         console.error("Error receiving product:", error);
         let errorMessage = "Error receiving product. Please try again.";
         if (error.message.includes("caller is not the retailer")) {
           errorMessage = "You don't have permission to receive products.";
         }
-        toast.error(errorMessage, { toastId });
+        customToast(errorMessage, "error");
       },
     }
   );
@@ -1564,12 +1612,12 @@ const ProductDetails = ({
     },
     {
       onSuccess: () => {
-        toast.success("Product updated successfully");
+        customToast("Product updated successfully", "success");
         setIsEditing(false);
       },
       onError: (error) => {
         console.error("Error updating product:", error);
-        toast.error(`Error updating product: ${error.message}`);
+        customToast(`Error updating product: ${error.message}`, "error");
       },
     }
   );
@@ -1888,6 +1936,7 @@ export {
   setupEventListeners,
   SupplyChainVisualization,
   ProductDetails,
+  customToast,
 };
 
 const AppWrapper = () => {
@@ -1896,15 +1945,16 @@ const AppWrapper = () => {
       <Provider store={store}>
         <ToastContainer
           position="bottom-right"
-          autoClose={5000}
+          autoClose={3000}
           hideProgressBar={false}
-          newestOnTop={false}
+          newestOnTop={true}
           closeOnClick
           rtl={false}
           pauseOnFocusLoss
           draggable
           pauseOnHover
           theme="dark"
+          limit={3}
         />
         <App />
       </Provider>
