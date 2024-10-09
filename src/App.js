@@ -41,13 +41,11 @@ import { motion } from "framer-motion";
 
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
 
-const toastCooldowns = new Map();
-
 // Updated customToast function
 const customToast = (message, type = 'info', options = {}) => {
   const defaultOptions = {
     position: "bottom-right",
-    autoClose: 3000, // Reduced to 3 seconds
+    autoClose: 3000, // 3 seconds
     hideProgressBar: false,
     closeOnClick: true,
     pauseOnHover: true,
@@ -209,14 +207,14 @@ const useContract = () => {
         customToast("Failed to connect to Ethereum wallet.", "error");
       }
     } else {
-      customToast("Ethereum wallet not found. Activating demo mode.", "info");
+      // Remove the notification and demo mode activation
       setContract(null);
       setAccount(null);
       setRoles({
-        owner: "0x1234...5678",
-        manufacturer: "0x2345...6789",
-        distributor: "0x3456...7890",
-        retailer: "0x4567...8901",
+        owner: null,
+        manufacturer: null,
+        distributor: null,
+        retailer: null,
       });
     }
   }, []);
@@ -353,8 +351,6 @@ const EditProductForm = ({ product, onSubmit, onCancel }) => {
   );
 };
 
-// Utility function to generate unique IDs
-
 const App = () => {
   const { contract, account, roles } = useContract();
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -362,16 +358,10 @@ const App = () => {
 
   useEffect(() => {
     const checkWallet = () => {
-      if (typeof window.ethereum === "undefined") {
-        setIsWalletMissing(true);
-        customToast("Ethereum wallet not detected. You can enable demo mode to explore the app.", "info", { autoClose: 3000 });
-      } else {
-        setIsWalletMissing(false);
-      }
+      setIsWalletMissing(typeof window.ethereum === "undefined");
     };
 
     checkWallet();
-    // Check for wallet every 5 seconds
     const intervalId = setInterval(checkWallet, 5000);
 
     return () => clearInterval(intervalId);
