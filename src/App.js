@@ -41,13 +41,11 @@ import { motion } from "framer-motion";
 
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
 
-const toastCooldowns = new Map();
-
-// Updated customToast function with cooldown
+// Updated customToast function
 const customToast = (message, type = 'info', options = {}) => {
   const defaultOptions = {
     position: "bottom-right",
-    autoClose: 5000, // Set a default autoClose time
+    autoClose: 3000, // 3 seconds
     hideProgressBar: false,
     closeOnClick: true,
     pauseOnHover: true,
@@ -63,18 +61,10 @@ const customToast = (message, type = 'info', options = {}) => {
   // Generate a unique ID for this toast
   const toastId = `${type}-${message}`;
 
-  // Check if this toast is in cooldown
-  const now = Date.now();
-  const cooldownTime = toastCooldowns.get(toastId);
-  if (cooldownTime && now < cooldownTime) {
-    return; // Still in cooldown, don't show the toast
-  }
-
-  // Set a new cooldown for this toast (3 seconds)
-  toastCooldowns.set(toastId, now + 3000);
-
-  // Show the toast
-  if (!toast.isActive(toastId)) {
+  // Check if this toast is already active
+  if (toast.isActive(toastId)) {
+    toast.update(toastId, { ...mergedOptions, render: message });
+  } else {
     switch (type) {
       case 'success':
         toast.success(message, { ...mergedOptions, toastId });
@@ -369,10 +359,20 @@ const App = () => {
   const [isWalletMissing, setIsWalletMissing] = useState(false);
 
   useEffect(() => {
-    if (typeof window.ethereum === "undefined") {
-      setIsWalletMissing(true);
-      customToast("Ethereum wallet not detected. You can enable demo mode to explore the app.", "info", { autoClose: 5000 });
-    }
+    const checkWallet = () => {
+      if (typeof window.ethereum === "undefined") {
+        setIsWalletMissing(true);
+        customToast("Ethereum wallet not detected. You can enable demo mode to explore the app.", "info", { autoClose: 3000 });
+      } else {
+        setIsWalletMissing(false);
+      }
+    };
+
+    checkWallet();
+    // Check for wallet every 5 seconds
+    const intervalId = setInterval(checkWallet, 5000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   const hasRole = useCallback(() => {
@@ -497,7 +497,7 @@ const App = () => {
         </div>
         <ToastContainer
           position="bottom-right"
-          autoClose={5000}
+          autoClose={3000}
           hideProgressBar={false}
           newestOnTop={true}
           closeOnClick
