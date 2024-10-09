@@ -41,11 +41,13 @@ import { motion } from "framer-motion";
 
 const CONTRACT_ADDRESS = process.env.REACT_APP_CONTRACT_ADDRESS;
 
+const toastCooldowns = new Map();
+
 // Updated customToast function
 const customToast = (message, type = 'info', options = {}) => {
   const defaultOptions = {
     position: "bottom-right",
-    autoClose: 3000, // 3 seconds
+    autoClose: 3000, // Reduced to 3 seconds
     hideProgressBar: false,
     closeOnClick: true,
     pauseOnHover: true,
