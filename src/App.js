@@ -218,7 +218,15 @@ const useContract = () => {
         customToast("Failed to connect to Ethereum wallet.", "error");
       }
     } else {
-      customToast("Ethereum wallet not found. Please install MetaMask.", "error");
+      customToast("Ethereum wallet not found. Activating demo mode.", "info");
+      setContract(null);
+      setAccount(null);
+      setRoles({
+        owner: "0x1234...5678",
+        manufacturer: "0x2345...6789",
+        distributor: "0x3456...7890",
+        retailer: "0x4567...8901",
+      });
     }
   }, []);
 
@@ -359,6 +367,14 @@ const EditProductForm = ({ product, onSubmit, onCancel }) => {
 const App = () => {
   const { contract, account, roles } = useContract();
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isWalletMissing, setIsWalletMissing] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.ethereum === "undefined") {
+      setIsWalletMissing(true);
+      customToast("Ethereum wallet not detected. You can enable demo mode to explore the app.", "info", { autoClose: 5000 });
+    }
+  }, []);
 
   const hasRole = useCallback(() => {
     if (isDemoMode) return true;
@@ -389,6 +405,16 @@ const App = () => {
             getUserRole={getUserRole}
           />
           <main className="container mx-auto px-4 py-8">
+            {isWalletMissing && !isDemoMode && (
+              <Card className="mb-8 bg-[#433878] border-[#7E60BF]">
+                <div className="flex items-center space-x-3">
+                  <AlertCircle size={24} className="text-[#E4B1F0]" />
+                  <p className="text-[#E4B1F0] font-medium">
+                    No Ethereum wallet detected. To view actual data, please connect a wallet. Alternatively, you can enable demo mode to explore the app.
+                  </p>
+                </div>
+              </Card>
+            )}
             <Routes>
               <Route
                 path="/"
@@ -458,7 +484,7 @@ const App = () => {
                 path="/history"
                 element={
                   <ProtectedRoute
-                    component={() => <TransactionHistory contract={contract} />}
+                    component={() => <TransactionHistory contract={contract} isDemoMode={isDemoMode} />}
                     contract={contract}
                     requiredAddress={Object.values(roles)}
                     account={account}
@@ -712,10 +738,10 @@ const ProtectedRoute = ({
     return <Navigate to="/" replace />;
   }
 
-  return <Component {...rest} />;
+  return <Component {...rest} isDemoMode={isDemoMode} />;
 };
 
-const Owner = ({ contract }) => {
+const Owner = ({ contract, isDemoMode }) => {
   const [manufacturer, setManufacturer] = useState("");
   const [distributor, setDistributor] = useState("");
   const [retailer, setRetailer] = useState("");
@@ -723,6 +749,11 @@ const Owner = ({ contract }) => {
   const [editingProduct, setEditingProduct] = useState(null);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [isLoading, setIsLoading] = useState(false);
+
+  const demoProducts = [
+    { id: "1", name: "Demo Product 1", description: "This is a demo product", price: ethers.parseEther("10") },
+    { id: "2", name: "Demo Product 2", description: "Another demo product", price: ethers.parseEther("20") },
+  ];
 
   const fetchProducts = useCallback(async () => {
     if (!contract) return;
@@ -910,7 +941,7 @@ const Owner = ({ contract }) => {
           </h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map((product) => (
+          {(isDemoMode ? demoProducts : products).map((product) => (
             <div
               key={product.id.toString()}
               className="bg-gray-700 rounded-lg p-4 shadow"
@@ -937,6 +968,7 @@ const Owner = ({ contract }) => {
                   </Button>
                 </div>
               )}
+              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
           ))}
         </div>
@@ -945,61 +977,7 @@ const Owner = ({ contract }) => {
   );
 };
 
-const setupEventListeners = (contract, dispatch) => {
-  if (!contract) return;
-
-  contract.removeAllListeners();
-
-  const handleEvent = (eventName, callback) => {
-    try {
-      contract.on(eventName, callback);
-    } catch (error) {
-      console.error(`Failed to set up ${eventName} listener:`, error);
-    }
-  };
-
-  handleEvent("ProductCreated", (productId, manufacturer, timestamp, event) => {
-    dispatch(
-      addTransaction({
-        productId: productId.toString(),
-        action: "Created",
-        performer: manufacturer,
-        timestamp: timestamp.toString(),
-        transactionHash: event.transactionHash,
-      })
-    );
-    customToast(`New product added to supply chain`, "success", { toastId: 'product-created-event' });
-  });
-
-  handleEvent("ProductSent", (productId, from, to, timestamp, event) => {
-    dispatch(
-      addTransaction({
-        productId: productId.toString(),
-        action: "Sent",
-        from,
-        to,
-        timestamp: timestamp.toString(),
-        transactionHash: event.transactionHash,
-      })
-    );
-    customToast(`Product ${productId} sent successfully`, "success", { toastId: `product-sent-event-${productId}` });
-  });
-
-  handleEvent("ProductReceived", (productId, receiver, timestamp, event) => {
-    dispatch(
-      addTransaction({
-        productId: productId.toString(),
-        action: "Received",
-        performer: receiver,
-        timestamp: timestamp.toString(),
-        transactionHash: event.transactionHash,
-      })
-    );
-    customToast(`Product ${productId} received successfully`, "success", { toastId: `product-received-event-${productId}` });
-  });
-};
-
-const Manufacturer = ({ contract }) => {
+const Manufacturer = ({ contract, isDemoMode }) => {
   const queryClient = useQueryClient();
   const [newProduct, setNewProduct] = useState({
     name: "",
@@ -1104,6 +1082,11 @@ const Manufacturer = ({ contract }) => {
     setNewProduct((prev) => ({ ...prev, [name]: value }));
   }, []);
 
+  const demoProducts = [
+    { id: "1", name: "Demo Product 1", description: "This is a demo product", price: "10.00" },
+    { id: "2", name: "Demo Product 2", description: "Another demo product", price: "20.00" },
+  ];
+
   return (
     <Card>
       <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">
@@ -1163,7 +1146,7 @@ const Manufacturer = ({ contract }) => {
         <p className="text-red-500">Error: {error.message}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {products.map((product) => (
+          {(isDemoMode ? demoProducts : products).map((product) => (
             <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
               <p className="font-semibold text-[#E4B1F0]">
                 Product ID: {product.id}
@@ -1180,6 +1163,7 @@ const Manufacturer = ({ contract }) => {
                   ? "Sending..."
                   : "Send to Distributor"}
               </Button>
+              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
           ))}
         </div>
@@ -1188,7 +1172,7 @@ const Manufacturer = ({ contract }) => {
   );
 };
 
-const Distributor = ({ contract }) => {
+const Distributor = ({ contract, isDemoMode }) => {
   const queryClient = useQueryClient();
 
   const { data: receivableProducts, isLoading: isLoadingReceivable } = useQuery(
@@ -1276,6 +1260,16 @@ const Distributor = ({ contract }) => {
     }
   );
 
+  const demoReceivableProducts = [
+    { id: "1", name: "Demo Receivable 1", description: "This is a demo receivable product", price: "15.00" },
+    { id: "2", name: "Demo Receivable 2", description: "Another demo receivable product", price: "25.00" },
+  ];
+
+  const demoReceivedProducts = [
+    { id: "3", name: "Demo Received 1", description: "This is a demo received product", price: "30.00" },
+    { id: "4", name: "Demo Received 2", description: "Another demo received product", price: "40.00" },
+  ];
+
   if (isLoadingReceivable || isLoadingReceived) return <div>Loading...</div>;
 
   return (
@@ -1292,7 +1286,7 @@ const Distributor = ({ contract }) => {
           </h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {receivableProducts?.map((product) => (
+          {(isDemoMode ? demoReceivableProducts : receivableProducts)?.map((product) => (
             <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
               <p className="font-semibold text-[#E4B1F0]">
                 Product ID: {product.id}
@@ -1309,6 +1303,7 @@ const Distributor = ({ contract }) => {
                   ? "Receiving..."
                   : "Receive Product"}
               </Button>
+              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
           ))}
         </div>
@@ -1322,7 +1317,7 @@ const Distributor = ({ contract }) => {
           </h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {receivedProducts?.map((product) => (
+          {(isDemoMode ? demoReceivedProducts : receivedProducts)?.map((product) => (
             <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
               <p className="font-semibold text-[#E4B1F0]">
                 Product ID: {product.id}
@@ -1339,6 +1334,7 @@ const Distributor = ({ contract }) => {
                   ? "Sending..."
                   : "Send to Retailer"}
               </Button>
+              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
           ))}
         </div>
@@ -1347,7 +1343,7 @@ const Distributor = ({ contract }) => {
   );
 };
 
-const Retailer = ({ contract }) => {
+const Retailer = ({ contract, isDemoMode }) => {
   const queryClient = useQueryClient();
 
   const {
@@ -1399,6 +1395,11 @@ const Retailer = ({ contract }) => {
     }
   );
 
+  const demoProducts = [
+    { id: "1", name: "Demo Product 1", description: "This is a demo product", price: "50.00" },
+    { id: "2", name: "Demo Product 2", description: "Another demo product", price: "60.00" },
+  ];
+
   if (isLoading) return <div>Loading...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
@@ -1415,7 +1416,7 @@ const Retailer = ({ contract }) => {
         </h3>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {products?.map((product) => (
+        {(isDemoMode ? demoProducts : products)?.map((product) => (
           <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
             <p className="font-semibold text-[#E4B1F0]">
               Product ID: {product.id}
@@ -1432,6 +1433,7 @@ const Retailer = ({ contract }) => {
                 ? "Receiving..."
                 : "Receive Product"}
             </Button>
+            {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
           </div>
         ))}
       </div>
@@ -1439,7 +1441,7 @@ const Retailer = ({ contract }) => {
   );
 };
 
-const ProductTrackingPage = ({ contract }) => {
+const ProductTrackingPage = ({ contract, isDemoMode }) => {
   const [productId, setProductId] = useState("");
 
   const {
@@ -1487,12 +1489,22 @@ const ProductTrackingPage = ({ contract }) => {
 
   const statusString = useProductStatus(product?.product?.status);
 
+  const demoProduct = {
+    product: {
+      id: "1",
+      name: "Demo Product",
+      description: "This is a demo product for tracking",
+      price: ethers.parseEther("100"),
+      status: 2,
+    },
+  };
+
   return (
     <>
       <Card className="mb-8">
         <div className="flex items-center mb-6">
           <Search size={24} className="text-[#7E60BF] mr-3" />
-          <h2 className="text-2xl font-semibold text-[#E4B1F0]">
+          <h2 className="text-2xl font-bold text-[#E4B1F0]">
             Track Product
           </h2>
         </div>
@@ -1526,7 +1538,18 @@ const ProductTrackingPage = ({ contract }) => {
         </Card>
       )}
 
-      {product && (
+      {isDemoMode && (
+        <Card className="mb-8 bg-[#433878] border-[#7E60BF]">
+          <div className="flex items-center space-x-3">
+            <AlertCircle size={24} className="text-[#E4B1F0]" />
+            <p className="text-[#E4B1F0] font-medium">
+              This is demo data. Connect a wallet to view actual product information.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {((isDemoMode && demoProduct) || (!isDemoMode && product)) && (
         <>
           <Card className="mb-8">
             <div className="flex items-center mb-6">
@@ -1536,28 +1559,29 @@ const ProductTrackingPage = ({ contract }) => {
               </h3>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <DetailItem label="ID" value={product.product.id.toString()} />
-              <DetailItem label="Name" value={product.product.name} />
+              <DetailItem label="ID" value={(isDemoMode ? demoProduct : product).product.id.toString()} />
+              <DetailItem label="Name" value={(isDemoMode ? demoProduct : product).product.name} />
               <DetailItem
                 label="Description"
-                value={product.product.description}
+                value={(isDemoMode ? demoProduct : product).product.description}
               />
               <DetailItem
                 label="Price"
-                value={`${ethers.formatEther(product.product.price)} INR`}
+                value={`${ethers.formatEther((isDemoMode ? demoProduct : product).product.price)} INR`}
               />
               <DetailItem label="Status" value={statusString} />
             </div>
           </Card>
 
           <Card className="mb-8">
-            <SupplyChainVisualization status={product.product.status} />
+            <SupplyChainVisualization status={(isDemoMode ? demoProduct : product).product.status} />
           </Card>
 
           <Card>
             <TransactionHistory
               contract={contract}
-              productId={product.product.id.toString()}
+              productId={(isDemoMode ? demoProduct : product).product.id.toString()}
+              isDemoMode={isDemoMode}
             />
           </Card>
         </>
@@ -1728,7 +1752,7 @@ const SupplyChainVisualization = ({ status }) => {
   );
 };
 
-const TransactionHistory = ({ contract, productId = null }) => {
+const TransactionHistory = ({ contract, productId = null, isDemoMode }) => {
   const {
     data: transactions = [], // Default to an empty array if undefined
     isLoading,
@@ -1788,6 +1812,30 @@ const TransactionHistory = ({ contract, productId = null }) => {
     }
   );
 
+  const demoTransactions = [
+    {
+      productId: "1",
+      action: "Product Created",
+      performer: "Manufacturer",
+      timestamp: (Date.now() / 1000 - 86400).toString(),
+      transactionHash: "0x123...abc",
+    },
+    {
+      productId: "1",
+      action: "Sent by Manufacturer",
+      performer: "Manufacturer",
+      timestamp: (Date.now() / 1000 - 43200).toString(),
+      transactionHash: "0x456...def",
+    },
+    {
+      productId: "1",
+      action: "Received by Distributor",
+      performer: "Distributor",
+      timestamp: Date.now().toString(),
+      transactionHash: "0x789...ghi",
+    },
+  ];
+
   if (isLoading) return <div>Loading transaction history...</div>;
   if (error) return <div>Error: {error.message}</div>;
 
@@ -1799,70 +1847,69 @@ const TransactionHistory = ({ contract, productId = null }) => {
           <h2 className="text-2xl font-bold text-white">Transaction History</h2>
         </div>
       </div>
-      {transactions.length === 0 ? ( // Check if transactions is defined
-        <div className="p-8 text-center text-gray-400">
-          <Package className="mx-auto h-16 w-16 text-[#7E60BF] mb-4" />
-          <p>No transactions recorded yet.</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-[#433878]">
-          {transactions.map((tx) => (
-            <div
-              key={tx.transactionHash}
-              className="p-6 hover:bg-[#433878] transition duration-150 ease-in-out"
-            >
-              <div className="flex items-center space-x-4">
-                <div className="flex-shrink-0">
-                  {tx.action === "Product Created" && (
-                    <div className="bg-green-900 rounded-full p-2 relative">
-                      <Package className="text-green-400 h-6 w-6" />
-                      <Plus className="text-green-400 h-3 w-3 absolute top-0 right-0" />
-                    </div>
-                  )}
-                  {tx.action === "Sent by Manufacturer" && (
-                    <div className="bg-blue-900 rounded-full p-2">
-                      <Truck className="text-blue-400 h-6 w-6" />
-                    </div>
-                  )}
-                  {tx.action === "Received by Distributor" && (
-                    <div className="bg-purple-900 rounded-full p-2">
-                      <Store className="text-purple-400 h-6 w-6" />
-                    </div>
-                  )}
-                  {tx.action === "Sent by Distributor" && (
-                    <div className="bg-blue-900 rounded-full p-2">
-                      <Truck className="text-blue-400 h-6 w-6" />
-                    </div>
-                  )}
-                  {tx.action === "Received by Retailer" && (
-                    <div className="bg-purple-900 rounded-full p-2">
-                      <Store className="text-purple-400 h-6 w-6" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex-grow">
-                  <p className="text-sm font-medium text-gray-200">
-                    Product {tx.productId} - {tx.action}
-                  </p>
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <p className="text-sm text-[#E4B1F0]">
-                    {new Date(Number(tx.timestamp) * 1000).toLocaleString()}
-                  </p>
-                  <a
-                    href={`https://www.oklink.com/amoy/tx/${tx.transactionHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-[#7E60BF] hover:text-[#E4B1F0]"
-                  >
-                    View on OKLink
-                  </a>
-                </div>
-              </div>
-            </div>
-          ))}
+      {isDemoMode && (
+        <div className="p-4 bg-[#433878] text-[#E4B1F0] text-sm">
+          Demo Mode: Showing sample transaction data. Connect a wallet to view actual transactions.
         </div>
       )}
+      <div className="divide-y divide-[#433878]">
+        {(isDemoMode ? demoTransactions : transactions).map((tx) => (
+          <div
+            key={tx.transactionHash}
+            className="p-6 hover:bg-[#433878] transition duration-150 ease-in-out"
+          >
+            <div className="flex items-center space-x-4">
+              <div className="flex-shrink-0">
+                {tx.action === "Product Created" && (
+                  <div className="bg-green-900 rounded-full p-2 relative">
+                    <Package className="text-green-400 h-6 w-6" />
+                    <Plus className="text-green-400 h-3 w-3 absolute top-0 right-0" />
+                  </div>
+                )}
+                {tx.action === "Sent by Manufacturer" && (
+                  <div className="bg-blue-900 rounded-full p-2">
+                    <Truck className="text-blue-400 h-6 w-6" />
+                  </div>
+                )}
+                {tx.action === "Received by Distributor" && (
+                  <div className="bg-purple-900 rounded-full p-2">
+                    <Store className="text-purple-400 h-6 w-6" />
+                  </div>
+                )}
+                {tx.action === "Sent by Distributor" && (
+                  <div className="bg-blue-900 rounded-full p-2">
+                    <Truck className="text-blue-400 h-6 w-6" />
+                  </div>
+                )}
+                {tx.action === "Received by Retailer" && (
+                  <div className="bg-purple-900 rounded-full p-2">
+                    <Store className="text-purple-400 h-6 w-6" />
+                  </div>
+                )}
+              </div>
+              <div className="flex-grow">
+                <p className="text-sm font-medium text-gray-200">
+                  Product {tx.productId} - {tx.action}
+                </p>
+              </div>
+              <div className="flex-shrink-0 text-right">
+                <p className="text-sm text-[#E4B1F0]">
+                  {new Date(Number(tx.timestamp) * 1000).toLocaleString()}
+                </p>
+                <a
+                  href={`https://www.oklink.com/amoy/tx/${tx.transactionHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#7E60BF] hover:text-[#E4B1F0]"
+                >
+                  View on OKLink
+                </a>
+              </div>
+            </div>
+            {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -1932,7 +1979,6 @@ export {
   Retailer,
   ProductTrackingPage,
   TransactionHistory,
-  setupEventListeners,
   SupplyChainVisualization,
   ProductDetails,
   customToast,
