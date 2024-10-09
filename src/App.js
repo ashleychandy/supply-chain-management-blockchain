@@ -47,13 +47,12 @@ const toastCooldowns = new Map();
 const customToast = (message, type = 'info', options = {}) => {
   const defaultOptions = {
     position: "bottom-right",
-    autoClose: type === 'error' ? 2000 : 3000,
+    autoClose: 5000, // Set a default autoClose time
     hideProgressBar: false,
     closeOnClick: true,
     pauseOnHover: true,
     draggable: true,
     onClick: (event) => {
-      // Prevent default behavior and stop propagation
       event.preventDefault();
       event.stopPropagation();
     },
@@ -498,7 +497,7 @@ const App = () => {
         </div>
         <ToastContainer
           position="bottom-right"
-          autoClose={3000}
+          autoClose={5000}
           hideProgressBar={false}
           newestOnTop={true}
           closeOnClick
