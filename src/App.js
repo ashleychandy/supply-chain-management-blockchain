@@ -1730,7 +1730,7 @@ const SupplyChainVisualization = ({ status }) => {
 
 const TransactionHistory = ({ contract, productId = null }) => {
   const {
-    data: transactions,
+    data: transactions = [], // Default to an empty array if undefined
     isLoading,
     error,
   } = useQuery(
@@ -1799,7 +1799,7 @@ const TransactionHistory = ({ contract, productId = null }) => {
           <h2 className="text-2xl font-bold text-white">Transaction History</h2>
         </div>
       </div>
-      {transactions.length === 0 ? (
+      {transactions.length === 0 ? ( // Check if transactions is defined
         <div className="p-8 text-center text-gray-400">
           <Package className="mx-auto h-16 w-16 text-[#7E60BF] mb-4" />
           <p>No transactions recorded yet.</p>
@@ -1844,7 +1844,6 @@ const TransactionHistory = ({ contract, productId = null }) => {
                   <p className="text-sm font-medium text-gray-200">
                     Product {tx.productId} - {tx.action}
                   </p>
-                  {/* Removed the "By: Unknown" line */}
                 </div>
                 <div className="flex-shrink-0 text-right">
                   <p className="text-sm text-[#E4B1F0]">
