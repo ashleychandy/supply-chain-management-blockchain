@@ -1359,6 +1359,7 @@ const Retailer = ({ contract, isDemoMode }) => {
     data: products,
     isLoading,
     error,
+    refetch,
   } = useQuery(
     "retailerProducts",
     async () => {
@@ -1373,8 +1374,13 @@ const Retailer = ({ contract, isDemoMode }) => {
       }));
     },
     {
-      enabled: !!contract,
+      enabled: !!contract && !isDemoMode,
       refetchInterval: 5000,
+      retry: 3,
+      onError: (error) => {
+        console.error("Error fetching retailer products:", error);
+        customToast("Failed to fetch products. Please try again.", "error");
+      },
     }
   );
 
@@ -1387,11 +1393,7 @@ const Retailer = ({ contract, isDemoMode }) => {
     {
       onSuccess: (_, productId) => {
         customToast(`Product ${productId} received successfully!`, "success");
-        queryClient.setQueryData(["retailerProducts"], (oldData) => {
-          return oldData
-            ? oldData.filter((product) => product.id !== productId.toString())
-            : [];
-        });
+        refetch(); // Refetch the products after successful mutation
       },
       onError: (error) => {
         console.error("Error receiving product:", error);
@@ -1409,8 +1411,7 @@ const Retailer = ({ contract, isDemoMode }) => {
     { id: "2", name: "Demo Product 2", description: "Another demo product", price: "60.00" },
   ];
 
-  if (isLoading) return <div>Loading...</div>;
-  if (error) return <div>Error: {error.message}</div>;
+  const displayProducts = isDemoMode ? demoProducts : products || [];
 
   return (
     <Card>
@@ -1418,34 +1419,57 @@ const Retailer = ({ contract, isDemoMode }) => {
         Retailer Dashboard
       </h2>
 
+      {isLoading && !isDemoMode && (
+        <div className="text-center py-4">
+          <p className="text-gray-400">Loading products...</p>
+        </div>
+      )}
+
+      {error && !isDemoMode && (
+        <div className="bg-red-900 text-red-200 p-4 rounded-lg mb-6">
+          <p>Error: {error.message}</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-2 text-sm text-red-300 hover:text-red-100"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center mb-4">
         <Package size={24} className="text-[#7E60BF] mr-2" />
         <h3 className="text-xl font-semibold text-[#E4B1F0]">
           Receivable Products
         </h3>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {(isDemoMode ? demoProducts : products)?.map((product) => (
-          <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
-            <p className="font-semibold text-[#E4B1F0]">
-              Product ID: {product.id}
-            </p>
-            <p>Name: {product.name}</p>
-            <p>Description: {product.description}</p>
-            <p>Price: {product.price} INR</p>
-            <Button
-              onClick={() => receiveProductMutation.mutate(product.id)}
-              className="mt-2"
-              disabled={receiveProductMutation.isLoading}
-            >
-              {receiveProductMutation.isLoading
-                ? "Receiving..."
-                : "Receive Product"}
-            </Button>
-            {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
-          </div>
-        ))}
-      </div>
+      
+      {displayProducts.length === 0 ? (
+        <p className="text-gray-400 text-center py-4">No products available to receive.</p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {displayProducts.map((product) => (
+            <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
+              <p className="font-semibold text-[#E4B1F0]">
+                Product ID: {product.id}
+              </p>
+              <p>Name: {product.name}</p>
+              <p>Description: {product.description}</p>
+              <p>Price: {product.price} INR</p>
+              <Button
+                onClick={() => receiveProductMutation.mutate(product.id)}
+                className="mt-2"
+                disabled={receiveProductMutation.isLoading}
+              >
+                {receiveProductMutation.isLoading
+                  ? "Receiving..."
+                  : "Receive Product"}
+              </Button>
+              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 };
