@@ -733,97 +733,69 @@ const ProtectedRoute = ({
 };
 
 const Owner = ({ contract, isDemoMode }) => {
+  const queryClient = useQueryClient();
   const [manufacturer, setManufacturer] = useState("");
   const [distributor, setDistributor] = useState("");
   const [retailer, setRetailer] = useState("");
-  const [products, setProducts] = useState([]);
-  const [editingProduct, setEditingProduct] = useState(null);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
-  const [isLoading, setIsLoading] = useState(false);
 
-  const demoProducts = [
-    { id: "1", name: "Demo Product 1", description: "This is a demo product", price: ethers.parseEther("10") },
-    { id: "2", name: "Demo Product 2", description: "Another demo product", price: ethers.parseEther("20") },
-  ];
-
-  const fetchProducts = useCallback(async () => {
-    if (!contract) return;
-    try {
-      setIsLoading(true);
+  const {
+    data: products = [],
+    isLoading,
+    error,
+    refetch
+  } = useQuery(
+    ["ownerProducts", contract?.address],
+    async () => {
+      if (!contract) throw new Error("Contract not initialized");
       const productCount = await contract.getProductCount();
       const allProducts = [];
       for (let i = 1; i <= productCount; i++) {
         const product = await contract.getProduct(i);
         if (product.id.toString() !== "0") {
-          allProducts.push(product);
+          allProducts.push({
+            ...product,
+            id: product.id.toString(),
+            name: product.name || "N/A",
+            description: product.description || "N/A",
+            price: ethers.formatEther(product.price),
+          });
         }
       }
-      setProducts(allProducts);
-    } catch (error) {
-      console.error("Failed to fetch products:", error);
-      customToast("Unable to load products. Please try again later.", "error");
-    } finally {
-      setIsLoading(false);
+      return allProducts;
+    },
+    {
+      enabled: !!contract && !isDemoMode,
+      refetchInterval: 5000,
+      retry: 3,
+      onError: (error) => {
+        console.error("Error fetching products:", error);
+        customToast("Failed to fetch products. Please try again.", "error");
+      },
     }
-  }, [contract]);
+  );
 
-  useEffect(() => {
-    if (!isDemoMode) {
-      fetchProducts();
-    }
-  }, [fetchProducts, isDemoMode]);
-
-  const validateAddresses = () => {
-    if (
-      !ethers.isAddress(manufacturer) ||
-      !ethers.isAddress(distributor) ||
-      !ethers.isAddress(retailer)
-    ) {
-      customToast("Please enter valid Ethereum addresses for all roles", "error");
-      return false;
-    }
-    return true;
-  };
-
-  const setAddresses = async () => {
-    if (isDemoMode) {
-      customToast("Address setting is not available in demo mode", "info");
-      return;
-    }
-
-    if (!contract) {
-      customToast("Unable to connect to blockchain. Please try again later.", "error");
-      return;
-    }
-
-    if (!validateAddresses()) return;
-
-    try {
-      setIsLoading(true);
-      const tx = await contract.setAddresses(
-        manufacturer,
-        distributor,
-        retailer
-      );
+  const setAddressesMutation = useMutation(
+    async () => {
+      if (!contract) throw new Error("Contract not initialized");
+      const tx = await contract.setAddresses(manufacturer, distributor, retailer);
       await tx.wait();
-      customToast("Supply chain roles updated successfully", "success");
-    } catch (error) {
-      console.error("Transaction failed:", error);
-      customToast("Unable to update supply chain roles. Please try again.", "error");
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      onSuccess: () => {
+        customToast("Supply chain roles updated successfully", "success");
+        queryClient.invalidateQueries(["ownerProducts"]);
+      },
+      onError: (error) => {
+        console.error("Error setting addresses:", error);
+        customToast("Failed to update supply chain roles. Please try again.", "error");
+      },
     }
-  };
+  );
 
-  const handleUpdateProduct = async (updatedProduct) => {
-    if (isDemoMode) {
-      customToast("Product updating is not available in demo mode", "info");
-      return;
-    }
-
-    if (!contract) return;
-    try {
-      setIsLoading(true);
+  const updateProductMutation = useMutation(
+    async (updatedProduct) => {
+      if (!contract) throw new Error("Contract not initialized");
       const tx = await contract.updateProductDetails(
         updatedProduct.id,
         updatedProduct.name,
@@ -831,65 +803,50 @@ const Owner = ({ contract, isDemoMode }) => {
         ethers.parseEther(updatedProduct.price.toString())
       );
       await tx.wait();
-      customToast("Product updated successfully", "success");
-      setEditingProduct(null);
-      await fetchProducts();
-    } catch (error) {
-      console.error("Failed to update product:", error);
-      customToast("Unable to update product. Please try again.", "error");
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      onSuccess: () => {
+        customToast("Product updated successfully", "success");
+        queryClient.invalidateQueries(["ownerProducts"]);
+      },
+      onError: (error) => {
+        console.error("Error updating product:", error);
+        customToast("Failed to update product. Please try again.", "error");
+      },
     }
-  };
+  );
 
   const handleDateRangeFilter = async () => {
-    if (isDemoMode) {
-      customToast("Date range filtering is not available in demo mode", "info");
-      return;
-    }
-
     if (!dateRange.start || !dateRange.end) {
       customToast("Please select both start and end dates", "error");
       return;
     }
 
     try {
-      setIsLoading(true);
-      const startTimestamp = Math.floor(
-        new Date(dateRange.start).getTime() / 1000
-      );
+      const startTimestamp = Math.floor(new Date(dateRange.start).getTime() / 1000);
       const endTimestamp = Math.floor(new Date(dateRange.end).getTime() / 1000);
-
-      const filteredProductIds = await contract.getProductsByDateRange(
-        startTimestamp,
-        endTimestamp
-      );
-
-      const filteredProducts = await Promise.all(
-        filteredProductIds.map((id) => contract.getProduct(id))
-      );
-
-      setProducts(filteredProducts);
+      await refetch({ startTimestamp, endTimestamp });
     } catch (error) {
       console.error("Failed to filter products:", error);
       customToast("Unable to filter products. Please try again.", "error");
-    } finally {
-      setIsLoading(false);
     }
   };
 
+  const demoProducts = [
+    { id: "1", name: "Demo Product 1", description: "This is a demo product", price: "10" },
+    { id: "2", name: "Demo Product 2", description: "Another demo product", price: "20" },
+  ];
+
+  const displayProducts = isDemoMode ? demoProducts : products;
+
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold mb-8 text-[#E4B1F0]">
-        Owner Dashboard
-      </h2>
+      <h2 className="text-3xl font-bold mb-8 text-[#E4B1F0]">Owner Dashboard</h2>
 
       <Card>
         <div className="flex items-center mb-6">
           <User size={28} className="text-[#7E60BF] mr-3" />
-          <h3 className="text-2xl font-semibold text-[#E4B1F0]">
-            Set Supply Chain Addresses
-          </h3>
+          <h3 className="text-2xl font-semibold text-[#E4B1F0]">Set Supply Chain Addresses</h3>
         </div>
         <div className="space-y-4">
           <Input
@@ -907,8 +864,11 @@ const Owner = ({ contract, isDemoMode }) => {
             value={retailer}
             onChange={(e) => setRetailer(e.target.value)}
           />
-          <Button onClick={setAddresses} disabled={isLoading || isDemoMode} className="mt-6">
-            {isLoading ? "Processing..." : "Set Addresses"}
+          <Button 
+            onClick={() => setAddressesMutation.mutate()} 
+            disabled={setAddressesMutation.isLoading || isDemoMode}
+          >
+            {setAddressesMutation.isLoading ? "Processing..." : "Set Addresses"}
           </Button>
         </div>
       </Card>
@@ -916,24 +876,18 @@ const Owner = ({ contract, isDemoMode }) => {
       <Card>
         <div className="flex items-center mb-6">
           <Calendar size={28} className="text-[#7E60BF] mr-3" />
-          <h3 className="text-2xl font-semibold text-[#E4B1F0]">
-            Filter Products by Date
-          </h3>
+          <h3 className="text-2xl font-semibold text-[#E4B1F0]">Filter Products by Date</h3>
         </div>
         <div className="flex flex-col sm:flex-row gap-4">
           <Input
             type="date"
             value={dateRange.start}
-            onChange={(e) =>
-              setDateRange({ ...dateRange, start: e.target.value })
-            }
+            onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
           />
           <Input
             type="date"
             value={dateRange.end}
-            onChange={(e) =>
-              setDateRange({ ...dateRange, end: e.target.value })
-            }
+            onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
           />
           <Button onClick={handleDateRangeFilter} disabled={isLoading || isDemoMode}>
             {isLoading ? "Filtering..." : "Filter Products"}
@@ -944,43 +898,32 @@ const Owner = ({ contract, isDemoMode }) => {
       <Card>
         <div className="flex items-center mb-6">
           <Package size={28} className="text-[#7E60BF] mr-3" />
-          <h3 className="text-2xl font-semibold text-[#E4B1F0]">
-            Manage Products
-          </h3>
+          <h3 className="text-2xl font-semibold text-[#E4B1F0]">Manage Products</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {(isDemoMode ? demoProducts : products).map((product) => (
-            <div
-              key={product.id.toString()}
-              className="bg-gray-700 rounded-lg p-4 shadow"
-            >
-              {editingProduct === product.id.toString() ? (
-                <EditProductForm
-                  product={product}
-                  onSubmit={handleUpdateProduct}
-                  onCancel={() => setEditingProduct(null)}
-                />
-              ) : (
-                <div>
-                  <h4 className="font-semibold text-[#E4B1F0]">
-                    Product {product.id.toString()}
-                  </h4>
-                  <p>Name: {product.name}</p>
-                  <p>Description: {product.description}</p>
-                  <p>Price: {ethers.formatEther(product.price)} INR</p>
-                  <Button
-                    onClick={() => setEditingProduct(product.id.toString())}
-                    className="mt-4"
-                    disabled={isDemoMode}
-                  >
-                    Edit Product
-                  </Button>
-                </div>
-              )}
-              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
-            </div>
-          ))}
-        </div>
+        {isLoading && !isDemoMode ? (
+          <p className="text-center text-gray-400">Loading products...</p>
+        ) : error ? (
+          <p className="text-center text-red-500">Error: {error.message}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {displayProducts.map((product) => (
+              <div key={product.id} className="bg-gray-700 rounded-lg p-4 shadow">
+                <h4 className="font-semibold text-[#E4B1F0]">Product {product.id}</h4>
+                <p>Name: {product.name}</p>
+                <p>Description: {product.description}</p>
+                <p>Price: {product.price} INR</p>
+                <Button
+                  onClick={() => updateProductMutation.mutate(product)}
+                  className="mt-4"
+                  disabled={updateProductMutation.isLoading || isDemoMode}
+                >
+                  {updateProductMutation.isLoading ? "Updating..." : "Update Product"}
+                </Button>
+                {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -1012,8 +955,13 @@ const Manufacturer = ({ contract, isDemoMode }) => {
       }));
     },
     {
-      enabled: !!contract,
-      refetchInterval: 10000, // Refetch every 10 seconds
+      enabled: !!contract && !isDemoMode,
+      refetchInterval: 5000,
+      retry: 3,
+      onError: (error) => {
+        console.error("Error fetching manufacturer products:", error);
+        customToast("Failed to fetch products. Please try again.", "error");
+      },
     }
   );
 
@@ -1031,7 +979,7 @@ const Manufacturer = ({ contract, isDemoMode }) => {
       onSuccess: () => {
         customToast("Product created successfully!", "success");
         setNewProduct({ name: "", description: "", price: "" });
-        queryClient.invalidateQueries("products");
+        queryClient.invalidateQueries(["manufacturerProducts"]);
       },
       onError: (error) => {
         console.error("Error creating product:", error);
@@ -1053,7 +1001,7 @@ const Manufacturer = ({ contract, isDemoMode }) => {
     {
       onSuccess: (_, productId) => {
         customToast(`Product ${productId} sent successfully!`, "success");
-        queryClient.invalidateQueries("products");
+        queryClient.invalidateQueries(["manufacturerProducts"]);
       },
       onError: (error) => {
         console.error("Error sending product:", error);
@@ -1066,48 +1014,43 @@ const Manufacturer = ({ contract, isDemoMode }) => {
     }
   );
 
-  const handleCreateProduct = useCallback(
-    (e) => {
-      e.preventDefault();
-      if (!newProduct.name.trim()) {
-        customToast("Product name is required", "error", { toastId: 'create-product-name-error', autoClose: 2000 });
-        return;
-      }
-      if (!newProduct.description.trim()) {
-        customToast("Product description is required", "error", { toastId: 'create-product-description-error', autoClose: 2000 });
-        return;
-      }
-      if (isNaN(newProduct.price) || parseFloat(newProduct.price) <= 0) {
-        customToast("Please enter a valid price greater than 0", "error", { toastId: 'create-product-price-error', autoClose: 2000 });
-        return;
-      }
-      createProductMutation.mutate(newProduct);
-    },
-    [newProduct, createProductMutation]
-  );
+  const handleCreateProduct = (e) => {
+    e.preventDefault();
+    if (!newProduct.name.trim()) {
+      customToast("Product name is required", "error");
+      return;
+    }
+    if (!newProduct.description.trim()) {
+      customToast("Product description is required", "error");
+      return;
+    }
+    if (isNaN(newProduct.price) || parseFloat(newProduct.price) <= 0) {
+      customToast("Please enter a valid price greater than 0", "error");
+      return;
+    }
+    createProductMutation.mutate(newProduct);
+  };
 
-  const handleInputChange = useCallback((e) => {
+  const handleInputChange = (e) => {
     const { name, value } = e.target;
     setNewProduct((prev) => ({ ...prev, [name]: value }));
-  }, []);
+  };
 
   const demoProducts = [
     { id: "1", name: "Demo Product 1", description: "This is a demo product", price: "10.00" },
     { id: "2", name: "Demo Product 2", description: "Another demo product", price: "20.00" },
   ];
 
+  const displayProducts = isDemoMode ? demoProducts : products;
+
   return (
     <Card>
-      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">
-        Manufacturer Dashboard
-      </h2>
+      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">Manufacturer Dashboard</h2>
 
       <form onSubmit={handleCreateProduct} className="mb-8">
         <div className="flex items-center mb-4">
           <Package size={24} className="text-[#7E60BF] mr-2" />
-          <h3 className="text-xl font-semibold text-[#E4B1F0]">
-            Create New Product
-          </h3>
+          <h3 className="text-xl font-semibold text-[#E4B1F0]">Create New Product</h3>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
@@ -1140,37 +1083,31 @@ const Manufacturer = ({ contract, isDemoMode }) => {
         <Button
           type="submit"
           className="mt-4"
-          disabled={createProductMutation.isLoading}
+          disabled={createProductMutation.isLoading || isDemoMode}
         >
           {createProductMutation.isLoading ? "Creating..." : "Create Product"}
         </Button>
       </form>
 
-      <h3 className="text-xl font-semibold mb-4 text-[#E4B1F0]">
-        Created Products
-      </h3>
-      {isLoading ? (
-        <p>Loading products...</p>
+      <h3 className="text-xl font-semibold mb-4 text-[#E4B1F0]">Created Products</h3>
+      {isLoading && !isDemoMode ? (
+        <p className="text-center text-gray-400">Loading products...</p>
       ) : error ? (
-        <p className="text-red-500">Error: {error.message}</p>
+        <p className="text-center text-red-500">Error: {error.message}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(isDemoMode ? demoProducts : products).map((product) => (
+          {displayProducts.map((product) => (
             <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
-              <p className="font-semibold text-[#E4B1F0]">
-                Product ID: {product.id}
-              </p>
+              <p className="font-semibold text-[#E4B1F0]">Product ID: {product.id}</p>
               <p>Name: {product.name}</p>
               <p>Description: {product.description}</p>
               <p>Price: {product.price} INR</p>
               <Button
                 onClick={() => sendProductMutation.mutate(product.id)}
                 className="mt-2"
-                disabled={sendProductMutation.isLoading}
+                disabled={sendProductMutation.isLoading || isDemoMode}
               >
-                {sendProductMutation.isLoading
-                  ? "Sending..."
-                  : "Send to Distributor"}
+                {sendProductMutation.isLoading ? "Sending..." : "Send to Distributor"}
               </Button>
               {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
@@ -1184,8 +1121,8 @@ const Manufacturer = ({ contract, isDemoMode }) => {
 const Distributor = ({ contract, isDemoMode }) => {
   const queryClient = useQueryClient();
 
-  const { data: receivableProducts, isLoading: isLoadingReceivable } = useQuery(
-    "receivableProducts",
+  const { data: receivableProducts, isLoading: isLoadingReceivable, error: errorReceivable } = useQuery(
+    ["receivableProducts", contract?.address],
     async () => {
       if (!contract) throw new Error("Contract not initialized");
       const products = await contract.getProductsSentByManufacturer();
@@ -1194,17 +1131,22 @@ const Distributor = ({ contract, isDemoMode }) => {
         id: product.id.toString(),
         name: product.name || "N/A",
         description: product.description || "N/A",
-        price: product.price ? ethers.formatEther(product.price) : "N/A",
+        price: ethers.formatEther(product.price),
       }));
     },
     {
-      enabled: !!contract,
+      enabled: !!contract && !isDemoMode,
       refetchInterval: 5000,
+      retry: 3,
+      onError: (error) => {
+        console.error("Error fetching receivable products:", error);
+        customToast("Failed to fetch receivable products. Please try again.", "error");
+      },
     }
   );
 
-  const { data: receivedProducts, isLoading: isLoadingReceived } = useQuery(
-    "receivedProducts",
+  const { data: receivedProducts, isLoading: isLoadingReceived, error: errorReceived } = useQuery(
+    ["receivedProducts", contract?.address],
     async () => {
       if (!contract) throw new Error("Contract not initialized");
       const products = await contract.getProductsReceivedByDistributor();
@@ -1213,12 +1155,17 @@ const Distributor = ({ contract, isDemoMode }) => {
         id: product.id.toString(),
         name: product.name || "N/A",
         description: product.description || "N/A",
-        price: product.price ? ethers.formatEther(product.price) : "N/A",
+        price: ethers.formatEther(product.price),
       }));
     },
     {
-      enabled: !!contract,
+      enabled: !!contract && !isDemoMode,
       refetchInterval: 5000,
+      retry: 3,
+      onError: (error) => {
+        console.error("Error fetching received products:", error);
+        customToast("Failed to fetch received products. Please try again.", "error");
+      },
     }
   );
 
@@ -1231,10 +1178,7 @@ const Distributor = ({ contract, isDemoMode }) => {
     {
       onSuccess: (_, productId) => {
         customToast(`Product ${productId} received successfully!`, "success");
-        queryClient.invalidateQueries([
-          "receivableProducts",
-          "receivedProducts",
-        ]);
+        queryClient.invalidateQueries(["receivableProducts", "receivedProducts"]);
       },
       onError: (error) => {
         console.error("Error receiving product:", error);
@@ -1279,74 +1223,73 @@ const Distributor = ({ contract, isDemoMode }) => {
     { id: "4", name: "Demo Received 2", description: "Another demo received product", price: "40.00" },
   ];
 
-  if (isLoadingReceivable || isLoadingReceived) return <div>Loading...</div>;
+  const displayReceivableProducts = isDemoMode ? demoReceivableProducts : receivableProducts || [];
+  const displayReceivedProducts = isDemoMode ? demoReceivedProducts : receivedProducts || [];
 
   return (
     <Card>
-      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">
-        Distributor Dashboard
-      </h2>
+      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">Distributor Dashboard</h2>
 
       <div className="mb-8">
         <div className="flex items-center mb-4">
           <Truck size={24} className="text-[#7E60BF] mr-2" />
-          <h3 className="text-xl font-semibold text-[#E4B1F0]">
-            Receivable Products
-          </h3>
+          <h3 className="text-xl font-semibold text-[#E4B1F0]">Receivable Products</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(isDemoMode ? demoReceivableProducts : receivableProducts)?.map((product) => (
-            <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
-              <p className="font-semibold text-[#E4B1F0]">
-                Product ID: {product.id}
-              </p>
-              <p>Name: {product.name}</p>
-              <p>Description: {product.description}</p>
-              <p>Price: {product.price} INR</p>
-              <Button
-                onClick={() => receiveProductMutation.mutate(product.id)}
-                className="mt-2"
-                disabled={receiveProductMutation.isLoading}
-              >
-                {receiveProductMutation.isLoading
-                  ? "Receiving..."
-                  : "Receive Product"}
-              </Button>
-              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
-            </div>
-          ))}
-        </div>
+        {isLoadingReceivable && !isDemoMode ? (
+          <p className="text-center text-gray-400">Loading receivable products...</p>
+        ) : errorReceivable ? (
+          <p className="text-center text-red-500">Error: {errorReceivable.message}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayReceivableProducts.map((product) => (
+              <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
+                <p className="font-semibold text-[#E4B1F0]">Product ID: {product.id}</p>
+                <p>Name: {product.name}</p>
+                <p>Description: {product.description}</p>
+                <p>Price: {product.price} INR</p>
+                <Button
+                  onClick={() => receiveProductMutation.mutate(product.id)}
+                  className="mt-2"
+                  disabled={receiveProductMutation.isLoading || isDemoMode}
+                >
+                  {receiveProductMutation.isLoading ? "Receiving..." : "Receive Product"}
+                </Button>
+                {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>
         <div className="flex items-center mb-4">
           <Package size={24} className="text-[#7E60BF] mr-2" />
-          <h3 className="text-xl font-semibold text-[#E4B1F0]">
-            Received Products
-          </h3>
+          <h3 className="text-xl font-semibold text-[#E4B1F0]">Received Products</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(isDemoMode ? demoReceivedProducts : receivedProducts)?.map((product) => (
-            <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
-              <p className="font-semibold text-[#E4B1F0]">
-                Product ID: {product.id}
-              </p>
-              <p>Name: {product.name}</p>
-              <p>Description: {product.description}</p>
-              <p>Price: {product.price} INR</p>
-              <Button
-                onClick={() => sendProductMutation.mutate(product.id)}
-                className="mt-2"
-                disabled={sendProductMutation.isLoading}
-              >
-                {sendProductMutation.isLoading
-                  ? "Sending..."
-                  : "Send to Retailer"}
-              </Button>
-              {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
-            </div>
-          ))}
-        </div>
+        {isLoadingReceived && !isDemoMode ? (
+          <p className="text-center text-gray-400">Loading received products...</p>
+        ) : errorReceived ? (
+          <p className="text-center text-red-500">Error: {errorReceived.message}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayReceivedProducts.map((product) => (
+              <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
+                <p className="font-semibold text-[#E4B1F0]">Product ID: {product.id}</p>
+                <p>Name: {product.name}</p>
+                <p>Description: {product.description}</p>
+                <p>Price: {product.price} INR</p>
+                <Button
+                  onClick={() => sendProductMutation.mutate(product.id)}
+                  className="mt-2"
+                  disabled={sendProductMutation.isLoading || isDemoMode}
+                >
+                  {sendProductMutation.isLoading ? "Sending..." : "Send to Retailer"}
+                </Button>
+                {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -1361,7 +1304,7 @@ const Retailer = ({ contract, isDemoMode }) => {
     error,
     refetch,
   } = useQuery(
-    "retailerProducts",
+    ["retailerProducts", contract?.address],
     async () => {
       if (!contract) throw new Error("Contract not initialized");
       const productsData = await contract.getProductsSentByDistributor();
@@ -1370,7 +1313,7 @@ const Retailer = ({ contract, isDemoMode }) => {
         id: product.id?.toString() || "Unknown",
         name: product.name || "Unnamed Product",
         description: product.description || "No description",
-        price: product.price ? ethers.formatEther(product.price) : "N/A",
+        price: ethers.formatEther(product.price),
       }));
     },
     {
@@ -1393,7 +1336,7 @@ const Retailer = ({ contract, isDemoMode }) => {
     {
       onSuccess: (_, productId) => {
         customToast(`Product ${productId} received successfully!`, "success");
-        refetch(); // Refetch the products after successful mutation
+        queryClient.invalidateQueries(["retailerProducts"]);
       },
       onError: (error) => {
         console.error("Error receiving product:", error);
@@ -1415,9 +1358,7 @@ const Retailer = ({ contract, isDemoMode }) => {
 
   return (
     <Card>
-      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">
-        Retailer Dashboard
-      </h2>
+      <h2 className="text-2xl font-bold mb-6 text-[#E4B1F0]">Retailer Dashboard</h2>
 
       {isLoading && !isDemoMode && (
         <div className="text-center py-4">
@@ -1439,9 +1380,7 @@ const Retailer = ({ contract, isDemoMode }) => {
 
       <div className="flex items-center mb-4">
         <Package size={24} className="text-[#7E60BF] mr-2" />
-        <h3 className="text-xl font-semibold text-[#E4B1F0]">
-          Receivable Products
-        </h3>
+        <h3 className="text-xl font-semibold text-[#E4B1F0]">Receivable Products</h3>
       </div>
       
       {displayProducts.length === 0 ? (
@@ -1450,20 +1389,16 @@ const Retailer = ({ contract, isDemoMode }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayProducts.map((product) => (
             <div key={product.id} className="bg-gray-700 p-4 rounded-lg">
-              <p className="font-semibold text-[#E4B1F0]">
-                Product ID: {product.id}
-              </p>
+              <p className="font-semibold text-[#E4B1F0]">Product ID: {product.id}</p>
               <p>Name: {product.name}</p>
               <p>Description: {product.description}</p>
               <p>Price: {product.price} INR</p>
               <Button
                 onClick={() => receiveProductMutation.mutate(product.id)}
                 className="mt-2"
-                disabled={receiveProductMutation.isLoading}
+                disabled={receiveProductMutation.isLoading || isDemoMode}
               >
-                {receiveProductMutation.isLoading
-                  ? "Receiving..."
-                  : "Receive Product"}
+                {receiveProductMutation.isLoading ? "Receiving..." : "Receive Product"}
               </Button>
               {isDemoMode && <p className="text-xs text-gray-400 mt-2">Demo Data</p>}
             </div>
