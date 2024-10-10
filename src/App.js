@@ -761,15 +761,17 @@ const Owner = ({ contract, isDemoMode }) => {
       setProducts(allProducts);
     } catch (error) {
       console.error("Failed to fetch products:", error);
-      customToast("Unable to load products. Please try again later.", "error", { toastId: 'fetch-products-error', autoClose: 2000 });
+      customToast("Unable to load products. Please try again later.", "error");
     } finally {
       setIsLoading(false);
     }
   }, [contract]);
 
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+    if (!isDemoMode) {
+      fetchProducts();
+    }
+  }, [fetchProducts, isDemoMode]);
 
   const validateAddresses = () => {
     if (
@@ -777,13 +779,18 @@ const Owner = ({ contract, isDemoMode }) => {
       !ethers.isAddress(distributor) ||
       !ethers.isAddress(retailer)
     ) {
-      customToast("Please enter valid Ethereum addresses for all roles", "error", { toastId: 'invalid-addresses-error', autoClose: 2000 });
+      customToast("Please enter valid Ethereum addresses for all roles", "error");
       return false;
     }
     return true;
   };
 
   const setAddresses = async () => {
+    if (isDemoMode) {
+      customToast("Address setting is not available in demo mode", "info");
+      return;
+    }
+
     if (!contract) {
       customToast("Unable to connect to blockchain. Please try again later.", "error");
       return;
@@ -809,6 +816,11 @@ const Owner = ({ contract, isDemoMode }) => {
   };
 
   const handleUpdateProduct = async (updatedProduct) => {
+    if (isDemoMode) {
+      customToast("Product updating is not available in demo mode", "info");
+      return;
+    }
+
     if (!contract) return;
     try {
       setIsLoading(true);
@@ -831,6 +843,11 @@ const Owner = ({ contract, isDemoMode }) => {
   };
 
   const handleDateRangeFilter = async () => {
+    if (isDemoMode) {
+      customToast("Date range filtering is not available in demo mode", "info");
+      return;
+    }
+
     if (!dateRange.start || !dateRange.end) {
       customToast("Please select both start and end dates", "error");
       return;
@@ -890,7 +907,7 @@ const Owner = ({ contract, isDemoMode }) => {
             value={retailer}
             onChange={(e) => setRetailer(e.target.value)}
           />
-          <Button onClick={setAddresses} disabled={isLoading} className="mt-6">
+          <Button onClick={setAddresses} disabled={isLoading || isDemoMode} className="mt-6">
             {isLoading ? "Processing..." : "Set Addresses"}
           </Button>
         </div>
@@ -918,7 +935,7 @@ const Owner = ({ contract, isDemoMode }) => {
               setDateRange({ ...dateRange, end: e.target.value })
             }
           />
-          <Button onClick={handleDateRangeFilter} disabled={isLoading}>
+          <Button onClick={handleDateRangeFilter} disabled={isLoading || isDemoMode}>
             {isLoading ? "Filtering..." : "Filter Products"}
           </Button>
         </div>
@@ -954,6 +971,7 @@ const Owner = ({ contract, isDemoMode }) => {
                   <Button
                     onClick={() => setEditingProduct(product.id.toString())}
                     className="mt-4"
+                    disabled={isDemoMode}
                   >
                     Edit Product
                   </Button>
